@@ -207,4 +207,336 @@ function Ring({score,size=64}){
 function ClaimCard({result,index}){
   const [open,setOpen]=useState(false); const c=result.claim; const tier=classifyTier(c.url||c.publication);
   return <div style={{background:C.card,borderRadius:16,padding:24,marginBottom:14,border:`1px solid ${C.border}`,borderLeft:`4px solid ${SEV[result.severity]||C.light}`,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,f
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:220}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,color:C.light,fontWeight:600}}>#{index+1}</span>
+          <span style={{padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,background:`${SEV[result.severity]}15`,color:SEV[result.severity],textTransform:"uppercase",letterSpacing:"0.05em"}}>{result.severity}</span>
+          {tier.tier&&<span style={{padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:600,background:`${tier.color}12`,color:tier.color}}>{tier.label}</span>}
+        </div>
+        <h3 style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:8,lineHeight:1.4,margin:"0 0 8px"}}>{c.headline||c.url||"Untitled"}</h3>
+        <div style={{display:"flex",flexWrap:"wrap",gap:12,fontSize:13,color:C.muted}}>
+          {c.publication&&<span>📰 {c.publication}</span>}{c.date&&<span>📅 {c.date}</span>}{c.journalist_name&&<span>✍️ {c.journalist_name}</span>}
+          {c.reported_reach&&<span>👁️ {Number(c.reported_reach).toLocaleString()}</span>}
+          {c.reported_sentiment&&<span style={{padding:"1px 8px",borderRadius:10,fontSize:11,background:c.reported_sentiment==="positive"?"#ECFDF5":c.reported_sentiment==="negative"?"#FEF2F2":"#F9FAFB",color:c.reported_sentiment==="positive"?"#059669":c.reported_sentiment==="negative"?"#DC2626":"#6B7280"}}>{c.reported_sentiment}</span>}
+        </div>
+        {c._note&&<div style={{marginTop:8,fontSize:12,color:C.primary,fontStyle:"italic",opacity:.8}}>💡 {c._note}</div>}
+      </div>
+      <Ring score={result.score} size={68}/>
+    </div>
+    <div style={{marginTop:14}}>
+      <button onClick={()=>setOpen(!open)} style={{background:C.borderLight,border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,color:C.secondary,cursor:"pointer",fontWeight:500}}>
+        {open?"▾ Hide":"▸ Show"} {result.checks.length} checks ({result.stats.fails}F {result.stats.warns}W {result.stats.passes}P)
+      </button>
+      {c.url&&c.url.startsWith("http")&&<a href={c.url} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:C.accent,marginLeft:12,textDecoration:"none"}}>Open URL ↗</a>}
+    </div>
+    {open&&<div style={{marginTop:14,display:"grid",gap:6}}>
+      {result.checks.map((ch,i)=><div key={i} style={{display:"flex",gap:10,padding:"10px 12px",borderRadius:10,alignItems:"flex-start",background:ch.status==="fail"?"#FEF2F2":ch.status==="warn"?"#FFFBEB":ch.status==="info"?"#EEF2FF":"#ECFDF5",border:`1px solid ${ch.status==="fail"?"#FECACA":ch.status==="warn"?"#FDE68A":ch.status==="info"?"#C7D2FE":"#A7F3D0"}`}}>
+        <Icon type={ch.status} size={18}/>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:600,color:C.text}}><span style={{opacity:.4,marginRight:6,fontSize:10}}>L{ch.layer}</span>{ch.source}</div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>{ch.detail}</div>
+          {ch.sentimentData?.signals?.length>0&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
+            {ch.sentimentData.signals.map((s,j)=><span key={j} style={{padding:"1px 8px",borderRadius:6,fontSize:11,background:s.type==="positive"?"#ECFDF5":"#FEF2F2",color:s.type==="positive"?"#059669":"#DC2626"}}>{s.word}</span>)}
+          </div>}
+          <div style={{marginTop:6,height:4,borderRadius:2,background:"#E5E7EB",overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${ch.confidence}%`,borderRadius:2,background:ch.status==="fail"?C.error:ch.status==="warn"?C.warn:C.success,transition:"width .8s ease"}}/>
+          </div>
+          <div style={{fontSize:11,color:C.light,marginTop:2}}>Confidence: {ch.confidence}%</div>
+        </div>
+      </div>)}
+    </div>}
+  </div>;
+}
+
+function Summary({results}){
+  if(!results.length) return null;
+  const avg=Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
+  const tc=results.reduce((s,r)=>s+r.checks.length,0);
+  const af=results.reduce((s,r)=>s+r.stats.fails,0);
+  const aw=results.reduce((s,r)=>s+r.stats.warns,0);
+  const ap=results.reduce((s,r)=>s+r.stats.passes,0);
+  return <div style={{background:C.card,borderRadius:16,padding:24,marginBottom:20,border:`1px solid ${C.border}`,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+    <div style={{fontSize:13,fontWeight:700,color:C.muted,marginBottom:14,textTransform:"uppercase",letterSpacing:".06em"}}>📊 Verification Summary</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:18}}>
+      {[{l:"Claims",v:results.length,c:C.secondary},{l:"Avg Score",v:`${avg}%`,c:avg>70?C.success:avg>40?C.warn:C.error},{l:"Checks",v:tc,c:C.accent},{l:"Issues",v:af+aw,c:af?C.error:C.warn}].map(s=>
+        <div key={s.l} style={{background:C.surface,borderRadius:12,padding:14,textAlign:"center",border:`1px solid ${C.borderLight}`}}>
+          <div style={{fontSize:26,fontWeight:700,color:s.c}}>{s.v}</div>
+          <div style={{fontSize:12,color:C.light,marginTop:2}}>{s.l}</div>
+        </div>
+      )}
+    </div>
+    <div style={{display:"flex",height:10,borderRadius:5,overflow:"hidden",gap:2}}>
+      {ap>0&&<div style={{flex:ap,background:C.success,borderRadius:5}}/>}
+      {aw>0&&<div style={{flex:aw,background:C.warn,borderRadius:5}}/>}
+      {af>0&&<div style={{flex:af,background:C.error,borderRadius:5}}/>}
+    </div>
+    <div style={{display:"flex",gap:16,marginTop:8,fontSize:12,color:C.muted}}>
+      <span>✓ {ap} passed</span><span>⚠ {aw} warnings</span><span>✗ {af} failed</span>
+    </div>
+  </div>;
+}
+
+export default function App(){
+  const [tab,setTab]=useState("input");
+  const [fmt,setFmt]=useState("json");
+  const [input,setInput]=useState("");
+  const [results,setResults]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState(null);
+  const [filter,setFilter]=useState("all");
+  const fRef=useRef(null);
+
+  const loadSample=()=>{setInput(JSON.stringify(SAMPLE,null,2));setFmt("json");setErr(null);};
+  const handleFile=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=(ev)=>{setInput(ev.target.result);setFmt(f.name.endsWith(".csv")?"csv":"json");};r.readAsText(f);};
+
+  const verify=async()=>{
+    setLoading(true);setErr(null);
+    try{
+      let claims=fmt==="json"?JSON.parse(input):parseCSV(input);
+      if(!Array.isArray(claims))claims=[claims];
+      claims=claims.map(normalize);
+      if(!claims.length)throw new Error("No valid claims found.");
+      await new Promise(r=>setTimeout(r,400));
+      setResults(await Engine.run(claims));setTab("results");
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  };
+
+  const exportMD=()=>{
+    const avg=Math.round(results.reduce((s,r)=>s+r.score,0)/results.length);
+    let md=`# PR Verification Report\n**Date:** ${new Date().toLocaleDateString()}\n**Claims:** ${results.length} | **Avg Score:** ${avg}%\n\n`;
+    results.forEach((r,i)=>{
+      md+=`## #${i+1}: ${r.claim.headline||"Untitled"}\n**Score:** ${r.score}% | **Severity:** ${r.severity}\n`;
+      r.checks.forEach(c=>{md+=`- [${c.status.toUpperCase()}] L${c.layer} ${c.source}: ${c.detail}\n`;});
+      md+="\n";
+    });
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([md]));a.download=`pr-verify-${Date.now()}.md`;a.click();
+  };
+
+  const filtered=results.filter(r=>filter==="all"||r.severity===filter).sort((a,b)=>a.score-b.score);
+  const ts=(active)=>({padding:"10px 20px",borderRadius:10,border:"none",fontSize:14,fontWeight:active?600:400,background:active?C.card:"transparent",color:active?C.primary:C.muted,cursor:"pointer",transition:"all .2s",boxShadow:active?"0 1px 4px rgba(192,38,211,.1)":"none"});
+
+  return <div style={{fontFamily:"'Outfit','DM Sans',system-ui,sans-serif",background:"linear-gradient(135deg,#FDF4FF 0%,#EDE9FE 50%,#DBEAFE 100%)",minHeight:"100vh",color:C.text}}>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+
+    {/* Header */}
+    <div style={{background:"linear-gradient(135deg,#C026D3 0%,#7C3AED 40%,#3B82F6 100%)",padding:"28px 24px 22px",color:"#fff"}}>
+      <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:14}}>
+        <div style={{width:44,height:44,borderRadius:12,background:"rgba(255,255,255,.2)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:800}}>V</div>
+        <div>
+          <div style={{fontSize:24,fontWeight:700,letterSpacing:"-.02em"}}>PR Verification Studio</div>
+          <div style={{fontSize:13,opacity:.85,fontWeight:300}}>Verify AI-generated PR analytics • AlphaMetricX • Meltwater • Cision</div>
+        </div>
+      </div>
+    </div>
+
+    {/* Nav */}
+    <div style={{maxWidth:1100,margin:"0 auto",padding:"0 20px"}}>
+      <div style={{display:"flex",gap:4,marginTop:-16,background:C.surface,borderRadius:14,padding:5,width:"fit-content",boxShadow:"0 2px 8px rgba(0,0,0,.06)",border:`1px solid ${C.border}`,flexWrap:"wrap"}}>
+        {[{id:"input",l:"📥 Input"},{id:"results",l:`📋 Results${results.length?` (${results.length})`:""}`},{id:"logic",l:"🧠 Logic"},{id:"deploy",l:"🚀 Deploy"}].map(t=>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={ts(tab===t.id)}>{t.l}</button>
+        )}
+      </div>
+    </div>
+
+    <div style={{maxWidth:1100,margin:"0 auto",padding:"24px 20px 60px"}}>
+
+      {tab==="input"&&<div>
+        <div style={{background:C.card,borderRadius:16,padding:28,border:`1px solid ${C.border}`,marginBottom:20,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
+          <h2 style={{fontSize:18,fontWeight:700,margin:"0 0 6px"}}>Import PR Analytics Data</h2>
+          <p style={{fontSize:14,color:C.muted,marginBottom:20,lineHeight:1.5}}>Paste exported data from any PR platform. Auto-detects field names. Use the test data to see how verification works.</p>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{display:"flex",gap:3,background:C.surface,borderRadius:8,padding:3,border:`1px solid ${C.borderLight}`}}>
+              <button onClick={()=>setFmt("json")} style={ts(fmt==="json")}>JSON</button>
+              <button onClick={()=>setFmt("csv")} style={ts(fmt==="csv")}>CSV</button>
+            </div>
+            <button onClick={loadSample} style={{background:`${C.primary}12`,color:C.primary,border:`1px solid ${C.primary}30`,borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,cursor:"pointer"}}>🧪 Load 6 Test Claims</button>
+            <button onClick={()=>fRef.current?.click()} style={{background:C.surface,color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 16px",fontSize:13,cursor:"pointer"}}>📂 Upload File</button>
+            <input ref={fRef} type="file" accept=".json,.csv,.tsv" onChange={handleFile} style={{display:"none"}}/>
+          </div>
+          <textarea value={input} onChange={e=>setInput(e.target.value)} placeholder={fmt==="json"?'[\n  {\n    "headline": "...",\n    "url": "https://...",\n    "publication": "...",\n    "date": "2024-01-15",\n    "sentiment": "positive",\n    "reach": 12500000,\n    "journalist": "..."\n  }\n]':'headline,url,publication,date,sentiment,reach,journalist\n"Title",https://...,TechCrunch,2024-01-15,positive,12500000,Name'}
+            style={{width:"100%",minHeight:200,background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16,color:C.text,fontFamily:"'JetBrains Mono',monospace",fontSize:13,lineHeight:1.6,resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
+          {err&&<div style={{marginTop:12,padding:14,background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:10,fontSize:13,color:"#DC2626"}}>❌ {err}</div>}
+          <div style={{marginTop:20,display:"flex",gap:12,alignItems:"center"}}>
+            <button onClick={verify} disabled={!input.trim()||loading} style={{background:"linear-gradient(135deg,#C026D3,#7C3AED,#3B82F6)",color:"#fff",border:"none",borderRadius:12,padding:"14px 36px",fontSize:15,fontWeight:600,cursor:!input.trim()||loading?"not-allowed":"pointer",opacity:!input.trim()||loading?.5:1,boxShadow:"0 4px 12px rgba(192,38,211,.25)"}}>
+              {loading?"⏳ Verifying...":"🔍 Run Verification"}
+            </button>
+            {loading&&<span style={{fontSize:13,color:C.muted}}>Running 7-layer engine...</span>}
+          </div>
+        </div>
+        <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+          <h3 style={{fontSize:13,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:".05em",margin:"0 0 12px"}}>🗂️ Auto-Detected Fields</h3>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:8}}>
+            {[{f:"headline / title",d:"→ Sentiment cross-check (Layer 4)"},{f:"url / link",d:"→ Format + domain validation (Layer 1)"},{f:"publication / source",d:"→ Tier classification from 150+ DB (Layer 2)"},{f:"date / published_date",d:"→ Future detection + plausibility (Layer 3)"},{f:"sentiment / tone",d:"→ NLP cross-reference (Layer 4)"},{f:"reach / impressions",d:"→ Sanity bounds + tier range (Layer 5)"},{f:"journalist / author",d:"→ Name validation + attribution (Layer 7)"},{f:"sov / share_of_voice",d:"→ Math validation, sum check (Layer 6)"}].map(x=>
+              <div key={x.f} style={{padding:10,background:C.surface,borderRadius:8,border:`1px solid ${C.borderLight}`}}>
+                <span style={{color:C.primary,fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:600}}>{x.f}</span>
+                <div style={{color:C.muted,fontSize:12,marginTop:2}}>{x.d}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>}
+
+      {tab==="results"&&<div>
+        {!results.length?<div style={{background:C.card,borderRadius:16,padding:60,textAlign:"center",border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:48,marginBottom:12}}>📋</div><div style={{color:C.muted}}>No results yet — go to Input tab.</div>
+        </div>:<>
+          <Summary results={results}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {["all","critical","high","medium","low"].map(s=><button key={s} onClick={()=>setFilter(s)} style={{...ts(filter===s),...(s!=="all"&&filter===s?{color:SEV[s]}:{}),padding:"6px 14px",fontSize:13}}>
+                {s==="all"?"All":`${s[0].toUpperCase()+s.slice(1)} (${results.filter(r=>r.severity===s).length})`}
+              </button>)}
+            </div>
+            <button onClick={exportMD} style={{background:"linear-gradient(135deg,#C026D3,#7C3AED)",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>⬇ Export Report</button>
+          </div>
+          {filtered.map((r,i)=><ClaimCard key={i} result={r} index={results.indexOf(r)}/>)}
+        </>}
+      </div>}
+
+      {tab==="logic"&&<div style={{display:"grid",gap:16}}>
+        <div style={{background:C.card,borderRadius:16,padding:28,border:`1px solid ${C.border}`}}>
+          <h2 style={{fontSize:20,fontWeight:700,margin:"0 0 8px"}}>🧠 How The 7-Layer Engine Works</h2>
+          <p style={{fontSize:14,color:C.muted,lineHeight:1.7,margin:"0 0 4px"}}>PR platforms use AI to aggregate media data. AI can hallucinate articles, inflate reach, misclassify sentiment, or fabricate journalists. Each layer catches different errors independently.</p>
+        </div>
+        {[
+          {n:1,t:"URL Validation",i:"🔗",what:"Validates article URL format, protocol, and domain authenticity.",how:"Parses URL structure. Flags placeholder domains (example.com, localhost), homepage-only URLs, and non-HTTP protocols.",catches:"Fake/hallucinated links, placeholder data, broken URLs.",ex:"https://example.invalid/fake → FAIL (placeholder domain)"},
+          {n:2,t:"Publication Tier",i:"📰",what:"Classifies outlets into Tier 1 (Reuters, BBC), Tier 2 (Business Insider), Tier 3 (Medium, blogs) from a 150+ database.",how:"Matches URL hostname or publication name against curated database. Each tier has expected reach ranges for Layer 5 cross-check.",catches:"Blog posts misrepresented as premium coverage.",ex:"Reuters → Tier 1 Premium (reach: 1M-800M)"},
+          {n:3,t:"Date Plausibility",i:"📅",what:"Catches impossible dates — future articles, ancient dates, format errors.",how:"Parses date, calculates days from today, flags future dates (impossible), >10yr old articles (suspicious), weekend publishing for business outlets.",catches:"AI hallucinating future articles, wrong dates, fabricated coverage.",ex:"2027-09-15 → FAIL (future date — article can't exist)"},
+          {n:4,t:"Sentiment NLP",i:"💬",what:"Independently analyzes headline sentiment and compares against platform's reported value.",how:"50+ word lexicon with 3 weight levels (strong/moderate/weak). Calculates net score: >1=positive, <-1=negative, else=neutral.",catches:"Negative news (layoffs, scandals) misclassified as positive — extremely common in AI-generated reports.",ex:"'Major layoffs announced' → negative, but reported as positive → FAIL"},
+          {n:5,t:"Reach Sanity",i:"👁️",what:"Validates audience numbers against physical limits and tier-based expected ranges.",how:"3-level check: (1) Can't exceed 5.5B internet users, (2) Can't exceed 1B without being top-10 global site, (3) Must fit within tier's expected range (e.g., Tier 3 blog max 5M).",catches:"Inflated reach numbers — the #1 most common error in PR reports. AI platforms often multiply or fabricate these.",ex:"Medium blog with 45M reach → FAIL (Tier 3 max is 5M)"},
+          {n:6,t:"SOV Math",i:"📊",what:"Share of Voice must be 0-100% and all competitors' SOV must sum to ~100%.",how:"Validates range, flags monopolistic values (>80%), sums your SOV + all competitor SOVs. Deviation >10% from 100 = fail, >3% = warning.",catches:"Math errors, incomplete competitive sets, inflated SOV claims.",ex:"45% + 22% + 18% + 10% = 95% → WARN (5% gap)"},
+          {n:7,t:"Journalist Check",i:"✍️",what:"Validates journalist names and attribution claims.",how:"Checks: too short (<3 chars = truncated), single name (no surname), unusual characters. Suggests LinkedIn/site verification.",catches:"Fabricated names, truncated data exports, AI-generated bylines.",ex:"'X' as journalist → FAIL (1 char — placeholder)"},
+        ].map(l=><div key={l.n} style={{background:C.card,borderRadius:16,padding:22,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.primary}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <span style={{width:32,height:32,borderRadius:8,background:`${C.primary}12`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{l.i}</span>
+            <div><span style={{fontSize:11,color:C.primary,fontWeight:700}}>LAYER {l.n}</span><h3 style={{fontSize:16,fontWeight:700,margin:0}}>{l.t}</h3></div>
+          </div>
+          <div style={{display:"grid",gap:8}}>
+            {[{k:"What",v:l.what},{k:"How",v:l.how},{k:"Catches",v:l.catches},{k:"Example",v:l.ex}].map(x=>
+              <div key={x.k} style={{padding:10,background:C.surface,borderRadius:8}}>
+                <span style={{fontSize:11,fontWeight:700,color:C.primary,textTransform:"uppercase"}}>{x.k}</span>
+                <p style={{margin:"3px 0 0",fontSize:13,color:C.muted,lineHeight:1.5}}>{x.v}</p>
+              </div>
+            )}
+          </div>
+        </div>)}
+        <div style={{background:C.card,borderRadius:16,padding:22,border:`1px solid ${C.border}`}}>
+          <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 10px"}}>📐 Scoring Formula</h3>
+          <div style={{background:C.surface,borderRadius:10,padding:16,fontFamily:"'JetBrains Mono',monospace",fontSize:13,lineHeight:1.8,color:C.text}}>
+            {`Score = clamp(0, 100,
+  avg_confidence_across_checks
+  - (fail_count × 12)
+  - (warn_count × 4)
+)
+
+Severity:
+  fails ≥ 3 → CRITICAL
+  fails ≥ 1 → HIGH
+  warns ≥ 2 → MEDIUM
+  else      → LOW`}
+          </div>
+        </div>
+      </div>}
+
+      {tab==="deploy"&&<div style={{display:"grid",gap:16}}>
+        <div style={{background:C.card,borderRadius:16,padding:28,border:`1px solid ${C.border}`}}>
+          <h2 style={{fontSize:20,fontWeight:700,margin:"0 0 12px"}}>🚀 Deploy in 3 Steps</h2>
+
+          <div style={{background:`${C.primary}06`,border:`1px solid ${C.primary}20`,borderRadius:14,padding:20,marginBottom:14}}>
+            <h3 style={{margin:"0 0 8px",color:C.primary}}>Step 1: Vercel (Free, 2 min)</h3>
+            <pre style={{background:C.surface,borderRadius:10,padding:16,fontSize:13,fontFamily:"'JetBrains Mono',monospace",overflowX:"auto",margin:0,lineHeight:1.7}}>{`npx create-react-app pr-verification-studio
+cd pr-verification-studio
+# Replace src/App.js with this component code
+npm i -g vercel && vercel deploy
+# Live at: https://your-project.vercel.app`}</pre>
+          </div>
+
+          <div style={{background:`${C.accent}06`,border:`1px solid ${C.accent}20`,borderRadius:14,padding:20,marginBottom:14}}>
+            <h3 style={{margin:"0 0 8px",color:C.accent}}>Step 2: Add Backend APIs (Optional — More Power)</h3>
+            <pre style={{background:C.surface,borderRadius:10,padding:16,fontSize:12,fontFamily:"'JetBrains Mono',monospace",overflowX:"auto",margin:0,lineHeight:1.6}}>{`// server.js — All FREE APIs, no keys needed
+const express = require('express');
+const app = express();
+
+// GDELT — World's largest open media DB (FREE)
+app.post('/api/verify-gdelt', async (req, res) => {
+  const r = await fetch(\`https://api.gdeltproject.org/api/v2/
+    doc/doc?query=\${encodeURIComponent(req.body.headline)}
+    &mode=ArtList&format=json&maxrecords=5\`);
+  const data = await r.json();
+  res.json({ found: data.articles?.length > 0 });
+});
+
+// Wayback Machine — Archive check (FREE)
+app.post('/api/verify-archive', async (req, res) => {
+  const r = await fetch(\`https://archive.org/wayback/
+    available?url=\${encodeURIComponent(req.body.url)}\`);
+  const data = await r.json();
+  res.json({ archived: !!data.archived_snapshots?.closest });
+});
+
+// URL HEAD check — verify article loads
+app.post('/api/verify-url', async (req, res) => {
+  try {
+    const r = await fetch(req.body.url, {method:'HEAD'});
+    res.json({ exists: r.ok, status: r.status });
+  } catch(e) { res.json({ exists: false }); }
+});
+
+app.listen(3001);`}</pre>
+          </div>
+
+          <div style={{background:`${C.success}06`,border:`1px solid ${C.success}20`,borderRadius:14,padding:20}}>
+            <h3 style={{margin:"0 0 8px",color:C.success}}>Step 3: Docker (Self-hosted)</h3>
+            <pre style={{background:C.surface,borderRadius:10,padding:16,fontSize:13,fontFamily:"'JetBrains Mono',monospace",overflowX:"auto",margin:0,lineHeight:1.7}}>{`FROM node:20-alpine
+WORKDIR /app
+COPY . .
+RUN npm ci && npm run build
+RUN npm i -g serve
+EXPOSE 3000
+CMD ["serve", "-s", "build", "-l", "3000"]
+
+# docker build -t pr-verifier . && docker run -p 3000:3000 pr-verifier`}</pre>
+          </div>
+        </div>
+
+        <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+          <h3 style={{fontSize:15,fontWeight:700,margin:"0 0 12px"}}>📤 Export from PR Platforms</h3>
+          <div style={{display:"grid",gap:8}}>
+            {[
+              {n:"AlphaMetricX",s:"Search → Select results → Export (top-right) → CSV/Excel → Map: Title→headline, Source→publication, Date, Sentiment, Reach"},
+              {n:"Meltwater",s:"Explore → Export → Excel/CSV → Include: Headline, URL, Source, Date, Sentiment, Reach, Author"},
+              {n:"Cision",s:"Monitoring → Export → CSV → Map: Headline, URL, Outlet, Date, Tone, Circulation, Journalist"},
+              {n:"Prowly",s:"Coverage list → Export CSV → Title, Link, Source, Date, Sentiment"},
+              {n:"Brand24",s:"Analysis → Export Excel → Title, URL, Source, Date, Sentiment, Reach"},
+            ].map(p=><div key={p.n} style={{padding:12,background:C.surface,borderRadius:8,border:`1px solid ${C.borderLight}`}}>
+              <div style={{fontWeight:700,color:C.primary,fontSize:14}}>{p.n}</div>
+              <div style={{fontSize:13,color:C.muted,marginTop:2}}>{p.s}</div>
+            </div>)}
+          </div>
+        </div>
+
+        <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+          <h3 style={{fontSize:15,fontWeight:700,margin:"0 0 12px"}}>🆓 Free APIs for Production</h3>
+          <div style={{display:"grid",gap:8}}>
+            {[
+              {n:"GDELT Project",u:"api.gdeltproject.org",c:"100% Free",d:"World's largest open media DB, 250K+ articles/day, no key"},
+              {n:"Wayback Machine",u:"archive.org/wayback/available",c:"100% Free",d:"Verify if URL was ever real, no key needed"},
+              {n:"Google Custom Search",u:"developers.google.com/custom-search",c:"100/day free",d:"Verify via Google index, needs free API key"},
+              {n:"News API",u:"newsapi.org",c:"100/day free",d:"Search 80K+ sources, headline verification"},
+              {n:"MediaStack",u:"mediastack.com",c:"500/mo free",d:"Global news API with source categorization"},
+            ].map(a=><div key={a.n} style={{padding:12,background:C.surface,borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:14}}>{a.n}</div>
+                <div style={{fontSize:12,color:C.muted}}>{a.d}</div>
+                <div style={{fontSize:12,color:C.accent,fontFamily:"'JetBrains Mono',monospace"}}>{a.u}</div>
+              </div>
+              <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:600,background:"#ECFDF5",color:"#059669",whiteSpace:"nowrap"}}>{a.c}</span>
+            </div>)}
+          </div>
+        </div>
+      </div>}
+    </div>
+  </div>;
+}
