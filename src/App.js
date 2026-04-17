@@ -1,303 +1,327 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
-/*
- * PR VERIFICATION STUDIO v2.0 — Frontend
+/* ═══════════════════════════════════════════════════════════════
+ * PR VERIFICATION STUDIO — Enterprise UI
  * 
- * This connects to a REAL backend that calls:
- * • Wayback Machine API (article existence)
- * • GDELT Project API (coverage existence) 
- * • Claude AI API (full-article sentiment)
- * • SimilarWeb API (reach verification)
- *
- * Every verdict shows EXACTLY where it came from.
- * If something can't be verified, it says so — never fakes it.
- */
+ * Designed for Fortune 500 PR / Communications teams.
+ * Zero setup surface exposed to end users.
+ * Configuration handled at deployment time via env vars.
+ * ═══════════════════════════════════════════════════════════════ */
 
-// ── Change this to your backend URL ─────────────────────────
-const API_BASE = typeof window !== 'undefined' && window.ENV_API_URL
-  ? window.ENV_API_URL
-  : (process.env.REACT_APP_API_URL || "http://localhost:3001");
+const API_BASE =
+  (typeof window !== "undefined" && window.ENV_API_URL) ||
+  (typeof process !== "undefined" && process.env && process.env.REACT_APP_API_URL) ||
+  "http://localhost:3001";
 
-const VERDICT_CONFIG = {
-  verified:          { label: "Verified",           color: "#059669", bg: "#ECFDF5", border: "#A7F3D0", icon: "✓" },
-  partial:           { label: "Partially Verified", color: "#0369A1", bg: "#E0F2FE", border: "#7DD3FC", icon: "◐" },
-  mismatch:          { label: "Mismatch Found",     color: "#DC2626", bg: "#FEF2F2", border: "#FECACA", icon: "✗" },
-  failed:            { label: "Failed",             color: "#DC2626", bg: "#FEF2F2", border: "#FECACA", icon: "✗" },
-  not_found:         { label: "Not Found",          color: "#EA580C", bg: "#FFF7ED", border: "#FED7AA", icon: "?" },
-  flagged:           { label: "Flagged",            color: "#D97706", bg: "#FFFBEB", border: "#FDE68A", icon: "⚠" },
-  limited:           { label: "Limited Check",      color: "#6B7280", bg: "#F9FAFB", border: "#E5E7EB", icon: "~" },
-  unverified:        { label: "Unverified",         color: "#6B7280", bg: "#F9FAFB", border: "#E5E7EB", icon: "—" },
-  could_not_verify:  { label: "Could Not Verify",   color: "#6B7280", bg: "#F9FAFB", border: "#E5E7EB", icon: "—" },
-  no_data:           { label: "No Data Provided",   color: "#9CA3AF", bg: "#F9FAFB", border: "#E5E7EB", icon: "·" },
-  error:             { label: "Check Error",        color: "#DC2626", bg: "#FEF2F2", border: "#FECACA", icon: "!" },
+// ─── Design Tokens ──────────────────────────────────────────
+const T = {
+  ink:        "#0A0E1A",
+  inkMuted:   "#4A5568",
+  inkLight:   "#718096",
+  inkFaint:   "#A0AEC0",
+  line:       "#E4E7EC",
+  lineSoft:   "#F0F2F5",
+  surface:    "#FFFFFF",
+  canvas:     "#FAFBFC",
+  tint:       "#F7F3FD",
+  accent:     "#6D28D9",   // deep violet — primary action
+  accentDark: "#4C1D95",
+  accentSoft: "#EDE9FE",
+  verified:   "#047857",
+  verifiedBg: "#ECFDF5",
+  flagged:    "#B45309",
+  flaggedBg:  "#FFFBEB",
+  issue:      "#B91C1C",
+  issueBg:    "#FEF2F2",
+  neutral:    "#475569",
+  neutralBg:  "#F1F5F9",
+  info:       "#1E40AF",
+  infoBg:     "#EFF6FF",
 };
 
-const SEVERITY_CONFIG = {
-  critical: { label: "ISSUES FOUND",            color: "#DC2626", bg: "#FEF2F2" },
-  high:     { label: "DISCREPANCIES DETECTED",  color: "#EA580C", bg: "#FFF7ED" },
-  medium:   { label: "REVIEW RECOMMENDED",      color: "#D97706", bg: "#FFFBEB" },
-  low:      { label: "VERIFIED / CLEAN",        color: "#059669", bg: "#ECFDF5" },
+const VERDICT = {
+  verified:          { label: "Verified",          color: T.verified,  bg: T.verifiedBg, icon: "✓" },
+  partial:           { label: "Partial Match",     color: T.info,      bg: T.infoBg,     icon: "◐" },
+  mismatch:          { label: "Mismatch",          color: T.issue,     bg: T.issueBg,    icon: "✗" },
+  failed:            { label: "Failed",            color: T.issue,     bg: T.issueBg,    icon: "✗" },
+  not_found:         { label: "Not Found",         color: T.flagged,   bg: T.flaggedBg,  icon: "○" },
+  flagged:           { label: "Flagged",           color: T.flagged,   bg: T.flaggedBg,  icon: "⚠" },
+  limited:           { label: "Limited",           color: T.neutral,   bg: T.neutralBg,  icon: "—" },
+  unverified:        { label: "Unverified",        color: T.neutral,   bg: T.neutralBg,  icon: "—" },
+  could_not_verify:  { label: "Unverified",        color: T.neutral,   bg: T.neutralBg,  icon: "—" },
+  no_data:           { label: "No Data",           color: T.inkFaint,  bg: T.lineSoft,   icon: "·" },
+  error:             { label: "Error",             color: T.issue,     bg: T.issueBg,    icon: "!" },
+};
+
+const SEVERITY = {
+  critical: { label: "Issues Found",           color: T.issue,    bg: T.issueBg,    ring: "#DC2626" },
+  high:     { label: "Discrepancies Detected", color: T.flagged,  bg: T.flaggedBg,  ring: "#EA580C" },
+  medium:   { label: "Review Recommended",     color: T.flagged,  bg: T.flaggedBg,  ring: "#D97706" },
+  low:      { label: "Verified",               color: T.verified, bg: T.verifiedBg, ring: "#059669" },
 };
 
 const CHECK_NAMES = {
-  article_existence:     "Article Existence",
-  coverage_existence:    "Coverage in GDELT",
-  sentiment_verification: "Sentiment Verification",
-  reach_verification:    "Reach Verification",
-  date_validity:         "Date Validity",
-  journalist_name:       "Journalist Name",
+  article_existence:      "Article Existence",
+  coverage_existence:     "Coverage Verification",
+  sentiment_verification: "Sentiment Analysis",
+  reach_verification:     "Audience Reach",
+  date_validity:          "Publication Date",
+  journalist_name:        "Journalist Attribution",
 };
 
 const SAMPLE_CLAIMS = [
-  {
-    headline: "Infosys reports 30 percent jump in quarterly profit",
-    url: "https://economictimes.indiatimes.com/tech/information-tech/",
-    publication: "Economic Times",
-    date: "2024-04-15",
-    sentiment: "positive",
-    reach: 28000000,
-    journalist: "Megha Mandavia"
-  },
-  {
-    headline: "Byju's faces insolvency proceedings amid massive debt crisis",
-    url: "https://www.thehindu.com/business/",
-    publication: "The Hindu",
-    date: "2024-08-02",
-    sentiment: "positive",
-    reach: 12000000,
-    journalist: "Shilpa Phadnis"
-  },
-  {
-    headline: "Tata Motors electric vehicle sales surge to record high",
-    url: "https://www.livemint.com/auto-news/",
-    publication: "Livemint",
-    date: "2024-11-10",
-    sentiment: "positive",
-    reach: 8500000,
-    journalist: "Swaraj Baggonkar"
-  },
-  {
-    headline: "Indian startup raises Series B funding",
-    url: "https://medium.com/@startupblog/our-funding-journey",
-    publication: "Medium",
-    date: "2024-09-20",
-    sentiment: "positive",
-    reach: 52000000,
-    journalist: "Blogger"
-  },
-  {
-    headline: "Zomato faces probe over delivery partner working conditions",
-    url: "https://www.ndtv.com/business/zomato-delivery-partners",
-    publication: "NDTV",
-    date: "2026-12-01",
-    sentiment: "positive",
-    reach: 18000000,
-    journalist: "R"
-  },
-  {
-    headline: "Reliance Jio announces 5G expansion across 50 Indian cities",
-    url: "https://www.hindustantimes.com/technology/",
-    publication: "Hindustan Times",
-    date: "2024-07-15",
-    sentiment: "positive",
-    reach: 22000000,
-    journalist: "Sourabh Kulesh"
-  }
+  { headline: "Infosys reports 30 percent jump in quarterly profit", url: "https://economictimes.indiatimes.com/tech/information-tech/", publication: "Economic Times", date: "2024-04-15", sentiment: "positive", reach: 28000000, journalist: "Megha Mandavia" },
+  { headline: "Byju's faces insolvency proceedings amid massive debt crisis", url: "https://www.thehindu.com/business/", publication: "The Hindu", date: "2024-08-02", sentiment: "positive", reach: 12000000, journalist: "Shilpa Phadnis" },
+  { headline: "Tata Motors electric vehicle sales surge to record high", url: "https://www.livemint.com/auto-news/", publication: "Livemint", date: "2024-11-10", sentiment: "positive", reach: 8500000, journalist: "Swaraj Baggonkar" },
+  { headline: "Indian startup raises Series B funding", url: "https://medium.com/@startupblog/our-funding-journey", publication: "Medium", date: "2024-09-20", sentiment: "positive", reach: 52000000, journalist: "Blogger" },
+  { headline: "Zomato faces probe over delivery partner working conditions", url: "https://www.ndtv.com/business/zomato-delivery-partners", publication: "NDTV", date: "2026-12-01", sentiment: "positive", reach: 18000000, journalist: "R" },
+  { headline: "Reliance Jio announces 5G expansion across 50 Indian cities", url: "https://www.hindustantimes.com/technology/", publication: "Hindustan Times", date: "2024-07-15", sentiment: "positive", reach: 22000000, journalist: "Sourabh Kulesh" },
 ];
 
-function VerdictBadge({ verdict }) {
-  const cfg = VERDICT_CONFIG[verdict] || VERDICT_CONFIG.could_not_verify;
+// ─── Components ─────────────────────────────────────────────
+
+function VerdictPill({ verdict, size = "md" }) {
+  const v = VERDICT[verdict] || VERDICT.could_not_verify;
+  const isLg = size === "lg";
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 5,
-      padding: "3px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700,
-      background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
-      letterSpacing: "0.02em",
+      display: "inline-flex", alignItems: "center", gap: 6,
+      padding: isLg ? "6px 14px" : "3px 10px",
+      borderRadius: 100,
+      fontSize: isLg ? 13 : 11,
+      fontWeight: 600,
+      background: v.bg, color: v.color,
+      letterSpacing: "0.01em",
+      whiteSpace: "nowrap",
     }}>
-      <span style={{ fontSize: 14 }}>{cfg.icon}</span> {cfg.label}
+      <span style={{ fontSize: isLg ? 14 : 12, fontWeight: 700 }}>{v.icon}</span>
+      {v.label}
     </span>
   );
 }
 
-function ProofLink({ link }) {
+function ProofChip({ link }) {
   return (
-    <a href={link.url} target="_blank" rel="noopener noreferrer" style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      fontSize: 12, color: "#2563EB", textDecoration: "none",
-      padding: "2px 8px", background: "#EFF6FF", borderRadius: 6,
-      border: "1px solid #BFDBFE", marginRight: 6, marginBottom: 4,
-    }}>
-      🔗 {link.label}
+    <a
+      href={link.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5,
+        fontSize: 12, color: T.accent, textDecoration: "none",
+        padding: "4px 10px", background: T.surface, borderRadius: 6,
+        border: `1px solid ${T.line}`, marginRight: 6, marginBottom: 4,
+        fontWeight: 500,
+        transition: "all 0.15s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.tint; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = T.line; e.currentTarget.style.background = T.surface; }}
+    >
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M10 2h4v4M14 2l-7 7M6 4H3a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      {link.label.length > 40 ? link.label.substring(0, 40) + "…" : link.label}
     </a>
   );
 }
 
-function SourceDetail({ source }) {
-  return (
-    <div style={{ fontSize: 12, color: "#6B7280", padding: "6px 10px", background: "#F9FAFB", borderRadius: 6, marginTop: 4, border: "1px solid #F3F4F6" }}>
-      <strong style={{ color: "#374151" }}>{source.name}</strong>
-      {source.method && <span> — {source.method}</span>}
-      {source.error && <span style={{ color: "#DC2626" }}> — Error: {source.error}</span>}
-      {source.status && <span> — HTTP {source.status}</span>}
-      {source.found !== undefined && <span> — {source.found ? "Found ✓" : "Not found"}</span>}
-      {source.aiSentiment && <span> — AI says: "{source.aiSentiment}" ({source.aiConfidence} confidence)</span>}
-      {source.avgMonthlyVisits && <span> — {source.avgMonthlyVisits.toLocaleString()} avg monthly visits</span>}
-    </div>
-  );
-}
-
-function CheckResult({ check }) {
+function CheckRow({ check }) {
   const [expanded, setExpanded] = useState(false);
-  const cfg = VERDICT_CONFIG[check.verdict] || VERDICT_CONFIG.could_not_verify;
   const name = CHECK_NAMES[check.check] || check.check;
+  const hasDetails = (check.sources?.length > 0) || (check.proofLinks?.length > 0);
 
   return (
     <div style={{
-      padding: "14px 16px", borderRadius: 12, marginBottom: 8,
-      background: cfg.bg, border: `1px solid ${cfg.border}`,
+      padding: "14px 18px",
+      borderBottom: `1px solid ${T.lineSoft}`,
+      transition: "background 0.15s",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#1F2937" }}>{name}</span>
-            <VerdictBadge verdict={check.verdict} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{name}</span>
+            <VerdictPill verdict={check.verdict} />
           </div>
-          <p style={{ margin: 0, fontSize: 13, color: "#4B5563", lineHeight: 1.6 }}>{check.details}</p>
-        </div>
-      </div>
+          <p style={{ margin: 0, fontSize: 13, color: T.inkMuted, lineHeight: 1.55 }}>{check.details}</p>
 
-      {/* Proof links */}
-      {check.proofLinks && check.proofLinks.length > 0 && (
-        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap" }}>
-          {check.proofLinks.map((link, i) => <ProofLink key={i} link={link} />)}
-        </div>
-      )}
-
-      {/* Sources (expandable) */}
-      {check.sources && check.sources.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <button onClick={() => setExpanded(!expanded)} style={{
-            background: "none", border: "none", fontSize: 12, color: "#6B7280",
-            cursor: "pointer", padding: 0, textDecoration: "underline",
-          }}>
-            {expanded ? "Hide" : "Show"} source details ({check.sources.length})
-          </button>
-          {expanded && (
-            <div style={{ marginTop: 6 }}>
-              {check.sources.map((s, i) => <SourceDetail key={i} source={s} />)}
+          {check.proofLinks && check.proofLinks.length > 0 && (
+            <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap" }}>
+              {check.proofLinks.map((link, i) => <ProofChip key={i} link={link} />)}
             </div>
           )}
         </div>
+
+        {hasDetails && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            style={{
+              background: "none", border: "none", color: T.inkLight,
+              fontSize: 12, cursor: "pointer", padding: "2px 8px",
+              borderRadius: 4, fontWeight: 500, whiteSpace: "nowrap",
+            }}
+          >
+            {expanded ? "Hide details" : "Details"}
+          </button>
+        )}
+      </div>
+
+      {expanded && check.sources && check.sources.length > 0 && (
+        <div style={{ marginTop: 10, padding: "10px 14px", background: T.canvas, borderRadius: 8, border: `1px solid ${T.lineSoft}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.inkLight, letterSpacing: "0.05em", marginBottom: 6, textTransform: "uppercase" }}>
+            Verification Sources
+          </div>
+          {check.sources.map((s, i) => (
+            <div key={i} style={{ fontSize: 12, color: T.inkMuted, padding: "4px 0", lineHeight: 1.5 }}>
+              <strong style={{ color: T.ink }}>{s.name}</strong>
+              {s.method && <> — {s.method}</>}
+              {s.error && <span style={{ color: T.issue }}> (Error: {s.error})</span>}
+              {s.found !== undefined && <> — {s.found ? "Match found" : "No match"}</>}
+              {s.aiSentiment && <> — AI result: <em>{s.aiSentiment}</em> ({s.aiConfidence} confidence)</>}
+              {s.avgMonthlyVisits && <> — {s.avgMonthlyVisits.toLocaleString()} avg monthly visits</>}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function ClaimResult({ result, index }) {
+function ClaimCard({ result, index }) {
   const [open, setOpen] = useState(true);
-  const sev = SEVERITY_CONFIG[result.overall.severity] || SEVERITY_CONFIG.medium;
+  const sev = SEVERITY[result.overall.severity] || SEVERITY.medium;
   const inp = result.input;
 
   return (
-    <div style={{
-      background: "#FFFFFF", borderRadius: 16, padding: 24, marginBottom: 16,
-      border: `1px solid #E5E7EB`, borderLeft: `4px solid ${sev.color}`,
-      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    <article style={{
+      background: T.surface,
+      borderRadius: 12,
+      marginBottom: 14,
+      border: `1px solid ${T.line}`,
+      overflow: "hidden",
+      boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
     }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#9CA3AF", fontWeight: 700 }}>CLAIM #{index + 1}</span>
-            <span style={{
-              padding: "3px 12px", borderRadius: 20, fontSize: 11, fontWeight: 800,
-              background: sev.bg, color: sev.color, letterSpacing: "0.05em",
+      {/* Header strip */}
+      <div style={{
+        padding: "18px 22px",
+        borderLeft: `4px solid ${sev.ring}`,
+        background: T.surface,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{
+                fontSize: 11, color: T.inkFaint, fontWeight: 700,
+                letterSpacing: "0.08em",
+              }}>
+                #{String(index + 1).padStart(3, "0")}
+              </span>
+              <span style={{
+                padding: "3px 10px", borderRadius: 100,
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.03em",
+                background: sev.bg, color: sev.color,
+              }}>
+                {sev.label}
+              </span>
+            </div>
+            <h3 style={{
+              fontSize: 16, fontWeight: 600, color: T.ink,
+              margin: "0 0 10px", lineHeight: 1.4,
+              fontFamily: "'Söhne', 'Inter', system-ui, sans-serif",
             }}>
-              {result.overall.verdict}
-            </span>
+              {inp.headline || "Untitled claim"}
+            </h3>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 18, fontSize: 13, color: T.inkMuted }}>
+              {inp.publication && <Meta label="Publication" value={inp.publication} />}
+              {inp.date && <Meta label="Date" value={inp.date} />}
+              {inp.journalist && <Meta label="Journalist" value={inp.journalist} />}
+              {inp.reach && <Meta label="Reported Reach" value={Number(inp.reach).toLocaleString()} />}
+              {inp.sentiment && <Meta label="Reported Sentiment" value={inp.sentiment} />}
+            </div>
+            {inp.url && (
+              <a
+                href={inp.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-block", marginTop: 10,
+                  fontSize: 12, color: T.accent, textDecoration: "none",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  wordBreak: "break-all",
+                }}
+              >
+                {inp.url.length > 90 ? inp.url.substring(0, 90) + "…" : inp.url} ↗
+              </a>
+            )}
           </div>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: "#111827", margin: "0 0 8px", lineHeight: 1.4 }}>
-            {inp.headline || inp.url || "No headline"}
-          </h3>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 13, color: "#6B7280" }}>
-            {inp.publication && <span>📰 {inp.publication}</span>}
-            {inp.date && <span>📅 {inp.date}</span>}
-            {inp.journalist && <span>✍️ {inp.journalist}</span>}
-            {inp.reach && <span>👁️ {Number(inp.reach).toLocaleString()}</span>}
-            {inp.sentiment && <span>💬 {inp.sentiment}</span>}
-          </div>
-          {inp.url && (
-            <a href={inp.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#2563EB", display: "block", marginTop: 6, wordBreak: "break-all" }}>
-              {inp.url.length > 80 ? inp.url.substring(0, 80) + "..." : inp.url} ↗
-            </a>
-          )}
+        </div>
+
+        {/* Check counts */}
+        <div style={{ display: "flex", gap: 16, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.lineSoft}` }}>
+          {["verified", "flagged", "mismatch", "not_found", "unverified"].map(v => {
+            const count = result.checks.filter(c => c.verdict === v || (v === "unverified" && c.verdict === "could_not_verify")).length;
+            if (count === 0) return null;
+            const cfg = VERDICT[v];
+            return (
+              <div key={v} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: cfg.color, fontWeight: 700, fontSize: 14 }}>{cfg.icon}</span>
+                <span style={{ fontSize: 12, color: T.inkMuted }}>
+                  <strong style={{ color: T.ink }}>{count}</strong> {cfg.label.toLowerCase()}
+                </span>
+              </div>
+            );
+          })}
+          <button
+            onClick={() => setOpen(!open)}
+            style={{
+              marginLeft: "auto", background: "none", border: "none",
+              color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              padding: 0, letterSpacing: "0.02em",
+            }}
+          >
+            {open ? "Collapse" : "Show all checks"} →
+          </button>
         </div>
       </div>
 
-      {/* Toggle */}
-      <button onClick={() => setOpen(!open)} style={{
-        marginTop: 14, background: "#F3F4F6", border: "1px solid #E5E7EB",
-        borderRadius: 8, padding: "8px 16px", fontSize: 13, color: "#374151",
-        cursor: "pointer", fontWeight: 500,
-      }}>
-        {open ? "▾ Hide" : "▸ Show"} {result.checks.length} verification checks
-      </button>
-
-      {/* Checks */}
       {open && (
-        <div style={{ marginTop: 14 }}>
-          {result.checks.map((check, i) => <CheckResult key={i} check={check} />)}
+        <div>
+          {result.checks.map((check, i) => <CheckRow key={i} check={check} />)}
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
-function ApiStatusBanner({ apiStatus }) {
-  if (!apiStatus) return null;
+function Meta({ label, value }) {
   return (
-    <div style={{
-      display: "flex", gap: 16, flexWrap: "wrap", padding: "12px 16px",
-      background: "#F9FAFB", borderRadius: 10, border: "1px solid #E5E7EB",
-      marginBottom: 16, fontSize: 13,
-    }}>
-      <span style={{ fontWeight: 600, color: "#374151" }}>API Status:</span>
-      <span style={{ color: "#059669" }}>✓ Wayback Machine</span>
-      <span style={{ color: "#059669" }}>✓ GDELT</span>
-      <span style={{ color: apiStatus.anthropic ? "#059669" : "#D97706" }}>
-        {apiStatus.anthropic ? "✓" : "⚠"} Claude AI {!apiStatus.anthropic && "(not configured — headline-only fallback)"}
+    <span>
+      <span style={{ color: T.inkFaint, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: 6, fontWeight: 600 }}>
+        {label}
       </span>
-      <span style={{ color: apiStatus.similarweb ? "#059669" : "#6B7280" }}>
-        {apiStatus.similarweb ? "✓" : "—"} SimilarWeb {!apiStatus.similarweb && "(not configured — reach unverified)"}
-      </span>
-    </div>
+      <span style={{ color: T.ink, fontWeight: 500 }}>{value}</span>
+    </span>
   );
 }
+
+// ─── Main Application ──────────────────────────────────────
 
 export default function PRVerificationStudio() {
-  const [tab, setTab] = useState("input");
+  const [view, setView] = useState("upload"); // upload | results
   const [input, setInput] = useState("");
   const [brandName, setBrandName] = useState("");
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [progress, setProgress] = useState("");
-  const [apiStatus, setApiStatus] = useState(null);
-  const [backendUrl, setBackendUrl] = useState(API_BASE);
+  const [progressMsg, setProgressMsg] = useState("");
+  const [backendHealthy, setBackendHealthy] = useState(null);
+  const [filter, setFilter] = useState("all");
   const fileRef = useRef(null);
 
-  const checkHealth = async () => {
-    try {
-      const res = await fetch(`${backendUrl}/api/health`);
-      const data = await res.json();
-      setApiStatus(data.apisConfigured);
-      setError(null);
-      return true;
-    } catch {
-      setError(`Cannot reach backend at ${backendUrl}. Make sure the backend server is running.`);
-      return false;
-    }
-  };
+  // Silent health check on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/api/health`)
+      .then(r => r.json())
+      .then(() => setBackendHealthy(true))
+      .catch(() => setBackendHealthy(false));
+  }, []);
 
   const loadSample = () => {
     setInput(JSON.stringify(SAMPLE_CLAIMS, null, 2));
@@ -315,10 +339,7 @@ export default function PRVerificationStudio() {
   const verify = async () => {
     setLoading(true);
     setError(null);
-    setProgress("Connecting to backend...");
-
-    const healthy = await checkHealth();
-    if (!healthy) { setLoading(false); return; }
+    setProgressMsg("Connecting to verification service…");
 
     try {
       let claims;
@@ -326,12 +347,16 @@ export default function PRVerificationStudio() {
         claims = JSON.parse(input);
         if (!Array.isArray(claims)) claims = [claims];
       } catch {
-        // Try CSV parse
+        // CSV fallback
         const lines = input.trim().split("\n");
         const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
         claims = lines.slice(1).map(line => {
           const vals = []; let cur = "", inQ = false;
-          for (const ch of line) { if(ch==='"'){inQ=!inQ;continue;} if(ch===","&&!inQ){vals.push(cur.trim());cur="";continue;} cur+=ch; }
+          for (const ch of line) {
+            if (ch === '"') { inQ = !inQ; continue; }
+            if (ch === "," && !inQ) { vals.push(cur.trim()); cur = ""; continue; }
+            cur += ch;
+          }
           vals.push(cur.trim());
           const obj = {};
           headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
@@ -339,11 +364,11 @@ export default function PRVerificationStudio() {
         });
       }
 
-      if (!claims.length) throw new Error("No valid claims found.");
+      if (!claims.length) throw new Error("No valid claims found in input.");
 
-      setProgress(`Verifying ${claims.length} claims against Wayback Machine, GDELT, Claude AI...`);
+      setProgressMsg(`Verifying ${claims.length} ${claims.length === 1 ? "claim" : "claims"} against authoritative sources…`);
 
-      const res = await fetch(`${backendUrl}/api/verify`, {
+      const res = await fetch(`${API_BASE}/api/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ claims, brandName: brandName || undefined }),
@@ -351,294 +376,517 @@ export default function PRVerificationStudio() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Backend returned ${res.status}`);
+        throw new Error(errData.error || `Service returned ${res.status}`);
       }
 
       const data = await res.json();
       setResults(data);
-      setApiStatus(data.apiKeysConfigured);
-      setTab("results");
+      setView("results");
     } catch (err) {
-      setError(err.message);
+      if (err.message.includes("fetch") || err.message.includes("Failed")) {
+        setError("Verification service is currently unavailable. Please contact your administrator.");
+      } else {
+        setError(err.message);
+      }
     }
     setLoading(false);
-    setProgress("");
+    setProgressMsg("");
   };
 
-  const exportReport = () => {
+  const exportReport = (fmt = "md") => {
     if (!results) return;
-    let md = `# PR Verification Report\n\n`;
+
+    if (fmt === "json") {
+      const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `verification-report-${results.reportId.substring(0, 8)}.json`;
+      a.click();
+      return;
+    }
+
+    let md = `# Verification Report\n\n`;
     md += `**Report ID:** ${results.reportId}\n`;
-    md += `**Generated:** ${results.timestamp}\n`;
-    md += `**Claims Verified:** ${results.claimsVerified}\n`;
-    md += `**APIs Used:** Wayback Machine, GDELT${results.apiKeysConfigured?.anthropic ? ", Claude AI" : ""}${results.apiKeysConfigured?.similarweb ? ", SimilarWeb" : ""}\n\n`;
-    md += `---\n\n`;
+    md += `**Generated:** ${new Date(results.timestamp).toLocaleString()}\n`;
+    md += `**Claims Verified:** ${results.claimsVerified}\n\n`;
+    md += `---\n\n## Summary\n\n`;
+
+    const counts = Object.fromEntries(Object.keys(SEVERITY).map(k => [k, results.results.filter(r => r.overall.severity === k).length]));
+    Object.entries(counts).forEach(([k, v]) => { if (v > 0) md += `- **${SEVERITY[k].label}:** ${v}\n`; });
+
+    md += `\n---\n\n## Detailed Findings\n\n`;
 
     results.results.forEach((r, i) => {
-      md += `## Claim #${i + 1}: ${r.input.headline || r.input.url || "Untitled"}\n\n`;
-      md += `**Overall:** ${r.overall.verdict} (${r.overall.severity})\n`;
-      md += `**Publication:** ${r.input.publication || "—"} | **Date:** ${r.input.date || "—"} | **Journalist:** ${r.input.journalist || "—"}\n`;
-      md += `**Reported Sentiment:** ${r.input.sentiment || "—"} | **Reported Reach:** ${r.input.reach ? Number(r.input.reach).toLocaleString() : "—"}\n\n`;
+      md += `### Claim #${String(i + 1).padStart(3, "0")}: ${r.input.headline || "Untitled"}\n\n`;
+      md += `| Field | Value |\n|-------|-------|\n`;
+      if (r.input.publication) md += `| Publication | ${r.input.publication} |\n`;
+      if (r.input.date) md += `| Date | ${r.input.date} |\n`;
+      if (r.input.journalist) md += `| Journalist | ${r.input.journalist} |\n`;
+      if (r.input.reach) md += `| Reported Reach | ${Number(r.input.reach).toLocaleString()} |\n`;
+      if (r.input.sentiment) md += `| Reported Sentiment | ${r.input.sentiment} |\n`;
+      if (r.input.url) md += `| URL | ${r.input.url} |\n`;
+      md += `| **Overall Status** | **${SEVERITY[r.overall.severity].label}** |\n\n`;
 
+      md += `#### Checks\n\n`;
       r.checks.forEach(c => {
         const name = CHECK_NAMES[c.check] || c.check;
-        md += `### ${name}: ${(VERDICT_CONFIG[c.verdict]?.label || c.verdict).toUpperCase()}\n`;
-        md += `${c.details}\n`;
+        const verdict = VERDICT[c.verdict]?.label || c.verdict;
+        md += `**${name}** — ${verdict}\n\n${c.details}\n\n`;
         if (c.proofLinks?.length) {
+          md += `*Proof:*\n`;
           c.proofLinks.forEach(l => { md += `- [${l.label}](${l.url})\n`; });
+          md += `\n`;
         }
-        if (c.sources?.length) {
-          c.sources.forEach(s => { md += `- Source: ${s.name}${s.method ? ` (${s.method})` : ""}\n`; });
-        }
-        md += `\n`;
       });
       md += `---\n\n`;
     });
 
-    md += `## Methodology\n\n`;
-    md += `This report was generated by PR Verification Studio v2.0.\n\n`;
-    md += `Each claim was verified against real external sources:\n`;
-    md += `- **Article Existence:** HTTP HEAD request + Wayback Machine (Internet Archive)\n`;
-    md += `- **Coverage Existence:** GDELT Project global news database\n`;
-    md += `- **Sentiment:** ${results.apiKeysConfigured?.anthropic ? "Claude AI (full article body analysis)" : "Headline keyword analysis (limited — Claude API not configured)"}\n`;
-    md += `- **Reach:** ${results.apiKeysConfigured?.similarweb ? "SimilarWeb traffic data" : "Not verified (SimilarWeb API not configured)"}\n`;
-    md += `- **Date Validity:** Calendar math (deterministic)\n\n`;
-    md += `Every verdict includes its source. "Unverified" means we could not confirm or deny — not that the data is wrong.\n`;
-
     const blob = new Blob([md], { type: "text/markdown" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `pr-verification-${results.reportId}.md`;
+    a.download = `verification-report-${results.reportId.substring(0, 8)}.md`;
     a.click();
   };
 
-  const ts = (active) => ({
-    padding: "10px 22px", borderRadius: 10, border: "none", fontSize: 14, fontWeight: active ? 600 : 400,
-    background: active ? "#FFFFFF" : "transparent", color: active ? "#C026D3" : "#6B7280",
-    cursor: "pointer", boxShadow: active ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-  });
+  const filteredResults = results?.results.filter(r => filter === "all" || r.overall.severity === filter) || [];
+
+  // ─── Render ────────────────────────────────────────────
 
   return (
-    <div style={{ fontFamily: "'Outfit','DM Sans',system-ui,sans-serif", background: "linear-gradient(135deg,#FDF4FF 0%,#EDE9FE 50%,#DBEAFE 100%)", minHeight: "100vh", color: "#111827" }}>
-      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <div style={{
+      fontFamily: "'Söhne', 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+      background: T.canvas,
+      minHeight: "100vh",
+      color: T.ink,
+      WebkitFontSmoothing: "antialiased",
+    }}>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
-      {/* Header */}
-      <div style={{ background: "linear-gradient(135deg,#C026D3 0%,#7C3AED 40%,#3B82F6 100%)", padding: "28px 24px 22px", color: "#fff" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(255,255,255,.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800 }}>V</div>
-          <div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>PR Verification Studio</div>
-            <div style={{ fontSize: 13, opacity: .85 }}>Real verification with Wayback Machine • GDELT • Claude AI • SimilarWeb</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Nav */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px" }}>
-        <div style={{ display: "flex", gap: 4, marginTop: -16, background: "#FAF5FF", borderRadius: 14, padding: 5, width: "fit-content", boxShadow: "0 2px 8px rgba(0,0,0,.06)", border: "1px solid #E9D5F5", flexWrap: "wrap" }}>
-          {[{ id: "input", l: "📥 Input" }, { id: "results", l: `📋 Results${results ? ` (${results.claimsVerified})` : ""}` }, { id: "setup", l: "⚙️ Setup" }].map(t =>
-            <button key={t.id} onClick={() => setTab(t.id)} style={ts(tab === t.id)}>{t.l}</button>
-          )}
-        </div>
-      </div>
-
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px 60px" }}>
-
-        {/* INPUT TAB */}
-        {tab === "input" && <div>
-          {/* Backend URL config */}
-          <div style={{ background: "#FFF", borderRadius: 12, padding: "14px 20px", border: "1px solid #E5E7EB", marginBottom: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <label style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Backend URL:</label>
-            <input value={backendUrl} onChange={e => setBackendUrl(e.target.value)} style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 13, fontFamily: "'JetBrains Mono',monospace" }} />
-            <button onClick={checkHealth} style={{ background: "#F3F4F6", border: "1px solid #D1D5DB", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}>Test Connection</button>
-          </div>
-
-          <ApiStatusBanner apiStatus={apiStatus} />
-
-          <div style={{ background: "#FFF", borderRadius: 16, padding: 28, border: "1px solid #E5E7EB", marginBottom: 20 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 6px" }}>Import PR Analytics Data</h2>
-            <p style={{ fontSize: 14, color: "#6B7280", marginBottom: 20, lineHeight: 1.6 }}>
-              Paste your exported data from AlphaMetricX, Meltwater, Cision, or any PR platform. Each claim will be verified against <strong>real external sources</strong> — not pattern-matching.
-            </p>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Brand name (optional, improves sentiment analysis):</label>
-              <input value={brandName} onChange={e => setBrandName(e.target.value)} placeholder="e.g. Infosys, Tata Motors" style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 13, width: 200 }} />
+      {/* ── Top Navigation ── */}
+      <header style={{
+        background: T.surface,
+        borderBottom: `1px solid ${T.line}`,
+        position: "sticky", top: 0, zIndex: 10,
+      }}>
+        <div style={{
+          maxWidth: 1240, margin: "0 auto",
+          padding: "14px 28px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{
+              width: 32, height: 32,
+              background: `linear-gradient(135deg, ${T.accent} 0%, ${T.accentDark} 100%)`,
+              borderRadius: 8,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em",
+            }}>
+              PV
             </div>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-              <button onClick={loadSample} style={{ background: "#C026D312", color: "#C026D3", border: "1px solid #C026D330", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-                🧪 Load 6 Indian PR Test Claims
-              </button>
-              <button onClick={() => fileRef.current?.click()} style={{ background: "#F9FAFB", color: "#6B7280", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}>📂 Upload JSON/CSV</button>
-              <input ref={fileRef} type="file" accept=".json,.csv" onChange={handleFile} style={{ display: "none" }} />
-            </div>
-
-            <textarea value={input} onChange={e => setInput(e.target.value)}
-              placeholder={'[\n  {\n    "headline": "...",\n    "url": "https://...",\n    "publication": "...",\n    "date": "2024-01-15",\n    "sentiment": "positive",\n    "reach": 12500000,\n    "journalist": "..."\n  }\n]'}
-              style={{ width: "100%", minHeight: 220, background: "#FAF5FF", border: "1px solid #E9D5F5", borderRadius: 12, padding: 16, color: "#111827", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, lineHeight: 1.6, resize: "vertical", outline: "none", boxSizing: "border-box" }}
-            />
-
-            {error && <div style={{ marginTop: 12, padding: 14, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13, color: "#DC2626" }}>❌ {error}</div>}
-
-            <div style={{ marginTop: 20, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <button onClick={verify} disabled={!input.trim() || loading} style={{
-                background: "linear-gradient(135deg,#C026D3,#7C3AED,#3B82F6)", color: "#fff", border: "none", borderRadius: 12,
-                padding: "14px 36px", fontSize: 15, fontWeight: 600,
-                cursor: !input.trim() || loading ? "not-allowed" : "pointer",
-                opacity: !input.trim() || loading ? .5 : 1,
-                boxShadow: "0 4px 12px rgba(192,38,211,.25)",
-              }}>
-                {loading ? "⏳ Verifying against real sources..." : "🔍 Run Real Verification"}
-              </button>
-              {progress && <span style={{ fontSize: 13, color: "#6B7280" }}>{progress}</span>}
-            </div>
-
-            {loading && (
-              <div style={{ marginTop: 16, padding: 16, background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, fontSize: 13, color: "#1E40AF", lineHeight: 1.6 }}>
-                🔄 The backend is now calling real external APIs for each claim. This may take 15-60 seconds depending on how many claims you submitted. Each URL is being checked against the Wayback Machine, each headline searched in GDELT's database of billions of articles{apiStatus?.anthropic ? ", and each article body read by Claude AI for sentiment" : ""}.
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.01em", lineHeight: 1.1 }}>
+                PR Verification Studio
               </div>
+              <div style={{ fontSize: 11, color: T.inkLight, letterSpacing: "0.02em" }}>
+                Enterprise media intelligence verification
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {results && (
+              <button
+                onClick={() => setView(view === "upload" ? "results" : "upload")}
+                style={{
+                  background: "none", border: `1px solid ${T.line}`,
+                  padding: "6px 14px", borderRadius: 6,
+                  fontSize: 13, color: T.inkMuted, cursor: "pointer", fontWeight: 500,
+                }}
+              >
+                {view === "upload" ? "View Results" : "New Verification"}
+              </button>
             )}
-          </div>
-
-          {/* What's different */}
-          <div style={{ background: "#FFF", borderRadius: 16, padding: 24, border: "1px solid #E5E7EB" }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 14px", color: "#374151" }}>How This Is Different From v1</h3>
-            <div style={{ display: "grid", gap: 10 }}>
-              {[
-                { old: "URL format check (just string parsing)", now: "HTTP HEAD request to the actual URL + Wayback Machine archive lookup", source: "archive.org — free, no key" },
-                { old: "Headline keyword matching (50 words)", now: "Claude AI reads the full article body and classifies sentiment", source: "Anthropic API — ~$0.01/article" },
-                { old: "Tier-based reach guessing", now: "SimilarWeb actual traffic data comparison", source: "similarweb.com — $200-500/mo or manual check" },
-                { old: "No coverage verification", now: "GDELT search across 250,000+ articles/day since 2013", source: "gdeltproject.org — free, no key" },
-              ].map(x => (
-                <div key={x.old} style={{ padding: 14, background: "#FAF5FF", borderRadius: 10, border: "1px solid #F3E8FF" }}>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-                    <span style={{ color: "#DC2626", fontWeight: 600, fontSize: 13 }}>Before:</span>
-                    <span style={{ fontSize: 13, color: "#6B7280", textDecoration: "line-through" }}>{x.old}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-                    <span style={{ color: "#059669", fontWeight: 600, fontSize: 13 }}>Now:</span>
-                    <span style={{ fontSize: 13, color: "#111827" }}>{x.now}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: "#7C3AED", fontStyle: "italic" }}>Source: {x.source}</div>
-                </div>
-              ))}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              fontSize: 11, color: T.inkLight,
+              padding: "4px 10px", background: T.canvas, borderRadius: 100,
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: "50%",
+                background: backendHealthy === null ? T.inkFaint : backendHealthy ? T.verified : T.issue,
+                boxShadow: backendHealthy ? `0 0 0 3px ${T.verifiedBg}` : "none",
+              }} />
+              {backendHealthy === null ? "Connecting" : backendHealthy ? "Service online" : "Service offline"}
             </div>
           </div>
-        </div>}
+        </div>
+      </header>
 
-        {/* RESULTS TAB */}
-        {tab === "results" && <div>
-          {!results ? (
-            <div style={{ background: "#FFF", borderRadius: 16, padding: 60, textAlign: "center", border: "1px solid #E5E7EB" }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
-              <div style={{ color: "#6B7280" }}>No results yet. Go to Input tab and run verification.</div>
-            </div>
-          ) : (
-            <>
-              {/* Report header */}
-              <div style={{ background: "#FFF", borderRadius: 16, padding: 24, border: "1px solid #E5E7EB", marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
-                  <div>
-                    <h2 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700 }}>Verification Report</h2>
-                    <div style={{ fontSize: 13, color: "#6B7280" }}>
-                      Report ID: <code style={{ fontFamily: "'JetBrains Mono',monospace", background: "#F3F4F6", padding: "1px 6px", borderRadius: 4 }}>{results.reportId}</code>
-                      &nbsp;• Generated: {new Date(results.timestamp).toLocaleString()}
-                      &nbsp;• Claims: {results.claimsVerified}
-                    </div>
-                  </div>
-                  <button onClick={exportReport} style={{
-                    background: "linear-gradient(135deg,#C026D3,#7C3AED)", color: "#fff", border: "none",
-                    borderRadius: 10, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  }}>⬇ Export Report</button>
-                </div>
-                <ApiStatusBanner apiStatus={results.apiKeysConfigured} />
+      {/* ── Main Content ── */}
+      <main style={{ maxWidth: 1240, margin: "0 auto", padding: "32px 28px 80px" }}>
 
-                {/* Summary stats */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginTop: 16 }}>
-                  {Object.entries(SEVERITY_CONFIG).map(([key, cfg]) => {
-                    const count = results.results.filter(r => r.overall.severity === key).length;
-                    if (count === 0) return null;
-                    return <div key={key} style={{ background: cfg.bg, borderRadius: 10, padding: 14, textAlign: "center", border: `1px solid ${cfg.color}20` }}>
-                      <div style={{ fontSize: 26, fontWeight: 700, color: cfg.color }}>{count}</div>
-                      <div style={{ fontSize: 11, color: cfg.color, fontWeight: 600 }}>{cfg.label}</div>
-                    </div>;
-                  })}
-                </div>
+        {/* ═══ UPLOAD VIEW ═══ */}
+        {view === "upload" && (
+          <div>
+            {/* Hero */}
+            <div style={{ marginBottom: 32, maxWidth: 680 }}>
+              <div style={{
+                display: "inline-block",
+                padding: "4px 12px", background: T.accentSoft, color: T.accent,
+                borderRadius: 100, fontSize: 11, fontWeight: 700,
+                letterSpacing: "0.06em", marginBottom: 14,
+              }}>
+                ENTERPRISE VERIFICATION
               </div>
-
-              {/* Results */}
-              {results.results.map((r, i) => <ClaimResult key={i} result={r} index={i} />)}
-            </>
-          )}
-        </div>}
-
-        {/* SETUP TAB */}
-        {tab === "setup" && <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ background: "#FFF", borderRadius: 16, padding: 28, border: "1px solid #E5E7EB" }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 16px" }}>⚙️ Backend Setup</h2>
-            <p style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>
-              This frontend needs a backend server running to call the real verification APIs. The backend handles Wayback Machine, GDELT, Claude AI, and SimilarWeb calls.
-            </p>
-
-            <div style={{ background: "#FAF5FF", borderRadius: 12, padding: 20, marginTop: 16, border: "1px solid #E9D5F5" }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 16, color: "#7C3AED" }}>Quick Start (Local Development)</h3>
-              <pre style={{ background: "#1E1B2E", color: "#E8E6E3", borderRadius: 10, padding: 16, fontSize: 13, fontFamily: "'JetBrains Mono',monospace", overflowX: "auto", lineHeight: 1.7, margin: 0 }}>{`# 1. Go to backend directory
-cd backend
-
-# 2. Install dependencies
-npm install
-
-# 3. Set up environment
-cp .env.example .env
-# Edit .env — add your ANTHROPIC_API_KEY at minimum
-
-# 4. Start backend
-npm start
-# Server runs at http://localhost:3001
-
-# 5. Test it
-curl http://localhost:3001/api/health`}</pre>
-            </div>
-
-            <div style={{ background: "#EFF6FF", borderRadius: 12, padding: 20, marginTop: 16, border: "1px solid #BFDBFE" }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 16, color: "#2563EB" }}>Production (EC2 + Vercel)</h3>
-              <p style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.6, margin: 0 }}>
-                See <strong>DEPLOY.md</strong> for complete step-by-step instructions for deploying the backend to EC2 (or Lambda) and the frontend to Vercel. Total cost: ~$10/month + ~$0.01 per article for Claude API.
+              <h1 style={{
+                fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em",
+                lineHeight: 1.15, margin: "0 0 12px", color: T.ink,
+              }}>
+                Verify AI-generated PR analytics against authoritative sources.
+              </h1>
+              <p style={{ fontSize: 16, color: T.inkMuted, lineHeight: 1.55, margin: 0 }}>
+                Every claim is independently checked against the Internet Archive, the GDELT global news database, AI-powered article analysis, and web traffic data. Every verdict cites its source.
               </p>
             </div>
-          </div>
 
-          <div style={{ background: "#FFF", borderRadius: 16, padding: 24, border: "1px solid #E5E7EB" }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 14px" }}>API Cost Calculator</h3>
-            <div style={{ display: "grid", gap: 8 }}>
+            {/* Trust badges */}
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 12, marginBottom: 28,
+            }}>
               {[
-                { name: "Wayback Machine", cost: "Free forever", articles: "Unlimited", note: "No API key needed" },
-                { name: "GDELT Project", cost: "Free forever", articles: "Unlimited", note: "No API key needed" },
-                { name: "Claude AI (Sonnet)", cost: "~$0.01/article", articles: "200 articles = ~$2", note: "For full-article sentiment. Without it, headline-only fallback." },
-                { name: "SimilarWeb", cost: "$200-500/month", articles: "Depends on plan", note: "Optional. Without it, reach shows 'Unverified'" },
-                { name: "EC2 t3.micro", cost: "~$8/month", articles: "N/A", note: "Free tier eligible for 12 months" },
-                { name: "Vercel (frontend)", cost: "Free", articles: "N/A", note: "Free tier is sufficient" },
-              ].map(x => (
-                <div key={x.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 12, background: "#F9FAFB", borderRadius: 8, flexWrap: "wrap", gap: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{x.name}</div>
-                    <div style={{ fontSize: 12, color: "#6B7280" }}>{x.note}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontWeight: 700, color: x.cost.includes("Free") ? "#059669" : "#374151", fontSize: 14 }}>{x.cost}</div>
-                    <div style={{ fontSize: 12, color: "#9CA3AF" }}>{x.articles}</div>
-                  </div>
+                { name: "Internet Archive", desc: "Wayback Machine archive" },
+                { name: "GDELT Project", desc: "Global news database" },
+                { name: "Claude AI", desc: "Full-article analysis" },
+                { name: "SimilarWeb", desc: "Audience traffic data" },
+              ].map(s => (
+                <div key={s.name} style={{
+                  padding: "14px 16px",
+                  background: T.surface,
+                  border: `1px solid ${T.line}`,
+                  borderRadius: 10,
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, marginBottom: 2 }}>{s.name}</div>
+                  <div style={{ fontSize: 12, color: T.inkLight }}>{s.desc}</div>
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: 16, padding: 14, background: "#ECFDF5", borderRadius: 10, border: "1px solid #A7F3D0" }}>
-              <strong style={{ color: "#059669" }}>Minimum viable cost:</strong>
-              <span style={{ color: "#065F46", marginLeft: 8 }}>~$10/month + $2 per 200 articles verified = $12/month for a typical PR team</span>
+
+            {/* Upload card */}
+            <div style={{
+              background: T.surface,
+              border: `1px solid ${T.line}`,
+              borderRadius: 14,
+              padding: 28,
+              boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
+                <div>
+                  <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 4px", color: T.ink }}>Submit data for verification</h2>
+                  <p style={{ fontSize: 13, color: T.inkMuted, margin: 0 }}>
+                    Paste exported data from AlphaMetricX, Meltwater, Cision, or any PR platform (JSON or CSV).
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={loadSample}
+                    style={{
+                      background: T.surface, border: `1px solid ${T.line}`,
+                      padding: "8px 14px", borderRadius: 8,
+                      fontSize: 13, color: T.inkMuted, cursor: "pointer", fontWeight: 500,
+                    }}
+                  >
+                    Load sample
+                  </button>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    style={{
+                      background: T.surface, border: `1px solid ${T.line}`,
+                      padding: "8px 14px", borderRadius: 8,
+                      fontSize: 13, color: T.inkMuted, cursor: "pointer", fontWeight: 500,
+                    }}
+                  >
+                    Upload file
+                  </button>
+                  <input ref={fileRef} type="file" accept=".json,.csv" onChange={handleFile} style={{ display: "none" }} />
+                </div>
+              </div>
+
+              {/* Brand name input */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.inkMuted, marginBottom: 6, letterSpacing: "0.02em" }}>
+                  BRAND NAME <span style={{ color: T.inkFaint, fontWeight: 400 }}>(optional — improves sentiment accuracy)</span>
+                </label>
+                <input
+                  value={brandName}
+                  onChange={e => setBrandName(e.target.value)}
+                  placeholder="e.g. Infosys, Tata Motors, Reliance"
+                  style={{
+                    width: "100%", maxWidth: 400,
+                    padding: "10px 14px", borderRadius: 8,
+                    border: `1px solid ${T.line}`, fontSize: 14,
+                    color: T.ink, background: T.surface,
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                  onFocus={e => e.target.style.borderColor = T.accent}
+                  onBlur={e => e.target.style.borderColor = T.line}
+                />
+              </div>
+
+              {/* Data input */}
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.inkMuted, marginBottom: 6, letterSpacing: "0.02em" }}>
+                COVERAGE DATA
+              </label>
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder={'[\n  {\n    "headline": "...",\n    "url": "https://...",\n    "publication": "...",\n    "date": "2024-01-15",\n    "sentiment": "positive",\n    "reach": 12500000,\n    "journalist": "..."\n  }\n]'}
+                style={{
+                  width: "100%", minHeight: 260,
+                  background: T.canvas,
+                  border: `1px solid ${T.line}`,
+                  borderRadius: 10,
+                  padding: 16, color: T.ink,
+                  fontFamily: "'JetBrains Mono', 'Menlo', monospace",
+                  fontSize: 13, lineHeight: 1.65,
+                  resize: "vertical", outline: "none",
+                  boxSizing: "border-box",
+                  transition: "border-color 0.15s",
+                }}
+                onFocus={e => e.target.style.borderColor = T.accent}
+                onBlur={e => e.target.style.borderColor = T.line}
+              />
+
+              {error && (
+                <div style={{
+                  marginTop: 14, padding: "12px 16px",
+                  background: T.issueBg, border: `1px solid ${T.issue}30`,
+                  borderRadius: 10, fontSize: 13, color: T.issue,
+                  display: "flex", alignItems: "center", gap: 10,
+                }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>✗</span> {error}
+                </div>
+              )}
+
+              <div style={{
+                marginTop: 22, display: "flex",
+                justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap",
+              }}>
+                <div style={{ fontSize: 12, color: T.inkLight }}>
+                  {input ? (() => {
+                    try {
+                      const p = JSON.parse(input);
+                      const n = Array.isArray(p) ? p.length : 1;
+                      return `${n} ${n === 1 ? "claim" : "claims"} ready to verify`;
+                    } catch { return "Data ready"; }
+                  })() : "No data yet"}
+                </div>
+                <button
+                  onClick={verify}
+                  disabled={!input.trim() || loading}
+                  style={{
+                    background: !input.trim() || loading
+                      ? T.inkFaint
+                      : `linear-gradient(180deg, ${T.accent} 0%, ${T.accentDark} 100%)`,
+                    color: "#fff", border: "none", borderRadius: 10,
+                    padding: "13px 32px", fontSize: 14, fontWeight: 600,
+                    cursor: !input.trim() || loading ? "not-allowed" : "pointer",
+                    letterSpacing: "0.01em",
+                    boxShadow: !input.trim() || loading ? "none" : "0 1px 3px rgba(109,40,217,0.3)",
+                    transition: "all 0.15s",
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <span style={{
+                        width: 14, height: 14,
+                        border: "2px solid rgba(255,255,255,0.3)",
+                        borderTopColor: "#fff",
+                        borderRadius: "50%",
+                        animation: "spin 0.6s linear infinite",
+                        display: "inline-block",
+                      }} />
+                      Verifying…
+                    </>
+                  ) : (
+                    <>Run Verification →</>
+                  )}
+                </button>
+              </div>
+
+              {progressMsg && (
+                <div style={{
+                  marginTop: 16, padding: "12px 16px",
+                  background: T.infoBg, border: `1px solid ${T.info}20`,
+                  borderRadius: 10, fontSize: 13, color: T.info,
+                  lineHeight: 1.5,
+                }}>
+                  {progressMsg} This typically takes 15-60 seconds.
+                </div>
+              )}
             </div>
           </div>
-        </div>}
-      </div>
+        )}
+
+        {/* ═══ RESULTS VIEW ═══ */}
+        {view === "results" && results && (
+          <div>
+            {/* Report header */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.inkLight, letterSpacing: "0.08em", fontWeight: 700, marginBottom: 6 }}>
+                    VERIFICATION REPORT
+                  </div>
+                  <h1 style={{ fontSize: 28, fontWeight: 700, margin: "0 0 6px", letterSpacing: "-0.02em" }}>
+                    {results.claimsVerified} {results.claimsVerified === 1 ? "claim" : "claims"} analyzed
+                  </h1>
+                  <div style={{ fontSize: 13, color: T.inkMuted, display: "flex", gap: 14, flexWrap: "wrap" }}>
+                    <span>
+                      <span style={{ color: T.inkLight }}>Report ID:</span>{" "}
+                      <code style={{ fontFamily: "'JetBrains Mono',monospace", background: T.canvas, padding: "1px 6px", borderRadius: 4 }}>
+                        {results.reportId.substring(0, 8)}
+                      </code>
+                    </span>
+                    <span>{new Date(results.timestamp).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => exportReport("md")}
+                    style={{
+                      background: T.surface, border: `1px solid ${T.line}`,
+                      padding: "9px 16px", borderRadius: 8,
+                      fontSize: 13, color: T.inkMuted, cursor: "pointer", fontWeight: 500,
+                    }}
+                  >
+                    Export Markdown
+                  </button>
+                  <button
+                    onClick={() => exportReport("json")}
+                    style={{
+                      background: T.surface, border: `1px solid ${T.line}`,
+                      padding: "9px 16px", borderRadius: 8,
+                      fontSize: 13, color: T.inkMuted, cursor: "pointer", fontWeight: 500,
+                    }}
+                  >
+                    Export JSON
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary cards */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 12,
+              }}>
+                {Object.entries(SEVERITY).map(([key, cfg]) => {
+                  const count = results.results.filter(r => r.overall.severity === key).length;
+                  const total = results.results.length;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setFilter(filter === key ? "all" : key)}
+                      style={{
+                        background: T.surface,
+                        border: `1px solid ${filter === key ? cfg.ring : T.line}`,
+                        borderRadius: 10,
+                        padding: "14px 16px",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        transition: "all 0.15s",
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div style={{
+                        position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
+                        background: cfg.ring,
+                      }} />
+                      <div style={{ fontSize: 11, color: T.inkLight, letterSpacing: "0.05em", fontWeight: 600, marginBottom: 6, textTransform: "uppercase" }}>
+                        {cfg.label}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                        <span style={{ fontSize: 28, fontWeight: 700, color: cfg.color, letterSpacing: "-0.02em" }}>
+                          {count}
+                        </span>
+                        <span style={{ fontSize: 12, color: T.inkLight }}>
+                          of {total} ({pct}%)
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Filter bar */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              marginBottom: 14, padding: "10px 14px",
+              background: T.surface, borderRadius: 10, border: `1px solid ${T.line}`,
+              flexWrap: "wrap",
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.inkMuted }}>Filter:</span>
+              {["all", ...Object.keys(SEVERITY)].map(key => {
+                const isActive = filter === key;
+                const label = key === "all" ? `All (${results.results.length})` : SEVERITY[key].label;
+                const count = key === "all" ? results.results.length : results.results.filter(r => r.overall.severity === key).length;
+                if (key !== "all" && count === 0) return null;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setFilter(key)}
+                    style={{
+                      padding: "5px 12px", borderRadius: 100,
+                      fontSize: 12, fontWeight: 500,
+                      background: isActive ? T.ink : "transparent",
+                      color: isActive ? "#fff" : T.inkMuted,
+                      border: `1px solid ${isActive ? T.ink : T.line}`,
+                      cursor: "pointer", transition: "all 0.15s",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Claim cards */}
+            <div>
+              {filteredResults.map((r, i) => (
+                <ClaimCard key={i} result={r} index={results.results.indexOf(r)} />
+              ))}
+              {filteredResults.length === 0 && (
+                <div style={{ background: T.surface, padding: 48, textAlign: "center", borderRadius: 12, border: `1px solid ${T.line}`, color: T.inkMuted }}>
+                  No claims match this filter.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer style={{
+        borderTop: `1px solid ${T.line}`,
+        background: T.surface,
+        padding: "18px 28px",
+        textAlign: "center",
+        fontSize: 12, color: T.inkLight,
+      }}>
+        PR Verification Studio • All verdicts cite authoritative sources • Enterprise-grade audit trail
+      </footer>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track { background: ${T.canvas}; }
+        *::-webkit-scrollbar-thumb { background: ${T.line}; border-radius: 5px; }
+        *::-webkit-scrollbar-thumb:hover { background: ${T.inkFaint}; }
+      `}</style>
     </div>
   );
 }
